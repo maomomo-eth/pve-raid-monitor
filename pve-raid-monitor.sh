@@ -714,6 +714,15 @@ main() {
         fi
     } >>"$REPORT_FILE"
 
+    # 将具体告警写入服务日志，便于安装器和 journalctl 直接展示原因。
+    local message
+    for message in "${ISSUES[@]}"; do
+        log_line "CRITICAL" "$message"
+    done
+    for message in "${WARNINGS[@]}"; do
+        log_line "WARNING" "$message"
+    done
+
     if ((${#ISSUES[@]} > 0)); then
         log_line "CRITICAL" "${HOST_NAME} 阵列检查发现 ${#ISSUES[@]} 个严重问题，报告：${REPORT_FILE}"
         send_email_alert "严重异常"

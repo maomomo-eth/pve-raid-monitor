@@ -26,6 +26,17 @@ curl -fsSL https://raw.githubusercontent.com/maomomo-eth/pve-raid-monitor/main/i
 
 首次检查发现阵列异常不会撤销安装；安装器会保留服务和定时器，并提示查看报告。
 
+如果出现 `Job for pve-raid-monitor.service failed`，表示首次检查服务返回了失败状态，不代表安装文件失败，也不能仅凭这句话判断硬盘损坏。安装器会读取监控进程的实际退出状态，并显示最近服务日志；具体警告和严重问题也会写入服务日志。
+
+排查时执行：
+
+```bash
+systemctl show pve-raid-monitor.service -p Result -p ExecMainCode -p ExecMainStatus
+journalctl -u pve-raid-monitor.service -n 100 --no-pager
+```
+
+当 `Result=exit-code` 且 `ExecMainCode=1`（进程正常退出）时，`ExecMainStatus=1` 表示警告，`ExecMainStatus=2` 表示严重问题或检查命令失败。超时、被信号终止或服务无法启动需要结合 `Result` 和日志单独排查。`systemctl start` 自身的退出码不能用来区分监控程序的警告和严重异常。
+
 ## 安装
 
 在 PVE 主机上以 root 执行。先确认已经安装 `storcli` 和 `smartmontools`：

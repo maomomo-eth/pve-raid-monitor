@@ -206,7 +206,8 @@ enable_timer() {
 }
 
 run_initial_check() {
-    local check_rc
+    local start_rc properties key value
+    local service_result="" main_code="" main_status=""
 
     if (( SKIP_INITIAL_CHECK == 1 )); then
         info "已跳过首次硬盘检查"
@@ -215,25 +216,43 @@ run_initial_check() {
 
     info "正在执行首次硬盘检查"
     if systemctl start pve-raid-monitor.service; then
-        check_rc=0
+        info "首次检查正常"
+        return 0
     else
-        check_rc=$?
+        start_rc=$?
     fi
 
-    case "$check_rc" in
-        0)
-            info "首次检查正常"
-            ;;
-        1)
+    # systemctl 返回的是启动任务结果，不是监控程序的退出码。
+    # 同时检查 Result 和 ExecMainCode，避免把信号或超时误判为健康告警。
+    if properties="$(systemctl show pve-raid-monitor.service \
+        -p Result -p ExecMainCode -p ExecMainStatus)"; then
+        while IFS='=' read -r key value; do
+            case "$key" in
+                Result) service_result="$value" ;;
+                ExecMainCode) main_code="$value" ;;
+                ExecMainStatus) main_status="$value" ;;
+            esac
+        done <<<"$properties"
+    else
+        warn "无法读取首次检查服务状态"
+    fi
+
+    case "${service_result}:${main_code}:${main_status}" in
+        exit-code:1:1)
             warn "安装完成，但首次检查发现警告；请查看 journalctl 和本地报告"
             ;;
-        2)
-            warn "安装完成，但首次检查发现严重异常；请立即查看 CacheVault/阵列状态"
+        exit-code:1:2)
+            warn "安装完成，但首次检查发现严重异常或检查命令失败；请立即查看下方日志和本地报告"
             ;;
         *)
-            warn "安装完成，但首次检查服务返回退出码 ${check_rc}"
+            warn "安装完成，但首次检查服务未正常完成：systemctl=${start_rc}，Result=${service_result:-未知}，ExecMainCode=${main_code:-未知}，ExecMainStatus=${main_status:-未知}"
             ;;
     esac
+
+    info "最近服务日志（可能包含之前的检查记录，请核对时间）："
+    if ! journalctl -u pve-raid-monitor.service -n 50 --no-pager; then
+        warn "无法读取服务日志，请手动执行：journalctl -u pve-raid-monitor.service -n 100 --no-pager"
+    fi
 }
 
 main() {
@@ -267,4 +286,6 @@ main() {
     printf '最近日志：journalctl -u pve-raid-monitor.service -n 100 --no-pager\n'
 }
 
-main "$@"
+if [[ "${BASH_SOURCE[0]:-$0}" == "$0" ]]; then
+    main "$@"
+fi
