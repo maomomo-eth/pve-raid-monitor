@@ -1,0 +1,20 @@
+#!/usr/bin/env python3
+"""测试替身：仅保存到测试目录，绝不向网络投递。"""
+
+import os
+import sys
+import time
+from pathlib import Path
+
+
+expected = ["-oi", "-t"]
+if os.environ.get("FAKE_EXPECT_SENDER"):
+    expected += ["-f", os.environ["FAKE_EXPECT_SENDER"]]
+if sys.argv[1:] != expected:
+    sys.exit(64)
+payload = sys.stdin.buffer.read()
+Path(os.environ["FAKE_EMAIL_PATH"]).write_bytes(payload)
+time.sleep(float(os.environ.get("FAKE_EMAIL_DELAY", "0")))
+if os.environ.get("FAKE_EMAIL_FAIL") == "1":
+    print("模拟邮件队列不可用", file=sys.stderr)
+    sys.exit(75)

@@ -65,3 +65,11 @@ output="$(bash -s -- --help <"$project_dir/install.sh")"
 case_name='stdin 入口'
 assert_contains 'PVE 阵列每日监控一键安装器'
 printf '通过：%s\n' "$case_name"
+
+# 替换安装命令，仅验证新邮件组件会被纳入安装，不写入系统目录。
+install() { printf '模拟安装：%s\n' "$*"; }
+SOURCE_DIR="$project_dir"
+output="$(install_files)"
+case_name='安装邮件组件'
+assert_contains "$project_dir/mail_report.py /usr/local/lib/pve-raid-monitor/mail_report.py"
+printf '通过：%s\n' "$case_name"

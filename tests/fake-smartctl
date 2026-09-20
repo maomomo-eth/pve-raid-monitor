@@ -17,6 +17,11 @@ while (($# > 0)); do
     esac
 done
 
+if [[ "$smart_id" == "${FAKE_SMART_UNREADABLE_ID:--1}" ]]; then
+    printf '%s\n' 'Device open failed: simulated unavailable drive'
+    exit 2
+fi
+
 # 模拟实际设备：SAS 0-3 不支持 sat+megaraid，改用 megaraid 后正常；
 # SATA 4-7 使用 sat+megaraid 正常。
 case "$smart_type" in
@@ -34,5 +39,9 @@ case "$smart_type" in
 esac
 
 printf '%s\n' 'Reallocated_Sector_Ct 0'
-printf '%s\n' 'Current_Pending_Sector 0'
+if [[ "$smart_id" == "${FAKE_SMART_PENDING_ID:--1}" ]]; then
+    printf '%s\n' 'Current_Pending_Sector 2'
+else
+    printf '%s\n' 'Current_Pending_Sector 0'
+fi
 printf '%s\n' 'Offline_Uncorrectable 0'

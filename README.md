@@ -16,7 +16,7 @@ PVE 主机已安装厂商提供的 `storcli`/`storcli64` 后，可以直接执�
 curl -fsSL https://raw.githubusercontent.com/maomomo-eth/pve-raid-monitor/main/install.sh | bash
 ```
 
-安装器会自动安装 Debian/PVE 官方源中的 `smartmontools`，保留已有的 `/etc/pve-raid-monitor.conf`，安装 systemd 服务并启用每日定时器。`storcli` 属于阵列卡厂商工具，安装器不会从不明来源下载；如果找不到它，会停止安装并提示先安装。
+安装器会补齐 Debian/PVE 官方源中的 `smartmontools`、`python3`，保留已有的 `/etc/pve-raid-monitor.conf`，安装 systemd 服务并启用每日定时器。`storcli` 属于阵列卡厂商工具，安装器不会从不明来源下载；如果找不到它，会停止安装并提示先安装。再次运行相同命令即可升级，包括邮件组件，已有的邮箱配置会保留。
 
 如果不希望安装器自动调用 `apt-get`：
 
@@ -43,7 +43,7 @@ journalctl -u pve-raid-monitor.service -n 100 --no-pager
 
 ```bash
 apt update
-apt install -y smartmontools
+apt install -y smartmontools python3
 ```
 
 `storcli` 通常是厂商提供的独立 `.deb` 或二进制文件，本程序会自动寻找 `storcli64` 或 `storcli`。
@@ -52,6 +52,7 @@ apt install -y smartmontools
 
 ```bash
 install -D -m 0750 pve-raid-monitor.sh /usr/local/sbin/pve-raid-monitor
+install -D -m 0644 mail_report.py /usr/local/lib/pve-raid-monitor/mail_report.py
 install -D -m 0640 pve-raid-monitor.conf.example /etc/pve-raid-monitor.conf
 install -D -m 0644 pve-raid-monitor.service /etc/systemd/system/pve-raid-monitor.service
 install -D -m 0644 pve-raid-monitor.timer /etc/systemd/system/pve-raid-monitor.timer
@@ -103,6 +104,40 @@ ls -lt /var/log/pve-raid-monitor/
 
 默认每天 03:15 执行，并随机延后最多 5 分钟；服务器关机错过后，`Persistent=true` 会在下次开机补执行。
 
+## 邮件告警与日志附件
+
+编辑 `/etc/pve-raid-monitor.conf`，填写自己的收件地址：
+
+```bash
+ALERT_EMAIL='admin@example.com'
+```
+
+有严重问题或警告时，邮件包含：
+
+- 🔴 / ⚠️ 等级图标、主机名、检查时间和严重/警告数量；
+- 分开展示的异常清单；
+- 阵列卡、ROC 温度、CacheVault、虚拟盘和物理盘数量概览；
+- 每块盘的 DID、槽位、SAS/SATA 接口、阵列状态、SMART 结果及透传方式；
+- 📎 本次完整的 `report-YYYYMMDD-HHMMSS.log` 附件，包含检查结论与原始命令输出。
+
+邮件同时提供 HTML 彩色排版和纯文本版本，中文、emoji、附件名按 MIME 编码。不支持 HTML 的客户端仍能查看完整摘要。未读取、跳过的 SMART 显示为 `❔`；已通过总体健康检查但发现介质异常的磁盘仍显示异常。正文仅展示摘要，原始报告中的序列号等设备标识保留在附件中，不要把真实报告提交到公开仓库。
+
+投递使用现有的本机 Postfix/sendmail，不再依赖 `mail` 命令，也不会修改 DNS、中转服务器或 SMTP 凭据。仅将收件地址改为 QQ 邮箱并不要求配置 QQ SMTP 中转；如现有 Postfix 已能发送到 QQ，可继续使用。若已有 SMTP 中转要求发件人和认证账号一致，可设置 `ALERT_FROM='你的发件邮箱'`，否则留空沿用 root 地址及 Postfix 的发件人改写。
+
+修改配置后，下次执行会自动读取，无需重启定时器。当前存在异常时，运行一次即可测试摘要和附件：
+
+```bash
+systemctl start pve-raid-monitor.service
+journalctl -u pve-raid-monitor.service -n 50 --no-pager
+mailq
+```
+
+检查完全正常时默认不发邮件。检测到异常时 service 返回非零属于告警行为；邮件生成、缺失依赖、提交失败或超时会单独记录到服务日志和本地报告，不改变硬件检查等级。`告警邮件（含日志附件）已提交本机邮件队列` 仅表示 Postfix 已接收，最终送达还需查看收件箱和 Postfix 日志：
+
+```bash
+journalctl -b --since '10 minutes ago' --no-pager | grep -E 'postfix/(smtp|error)|status='
+```
+
 ## 告警判定
 
 以下情况会返回退出码 2，并在 systemd 日志中标记为严重异常：
@@ -129,3 +164,15 @@ storcli /c0 show events
 ## 注意
 
 程序只读检查，不会执行 `force online`、`rebuild`、`clear foreign`、`initialize` 或其他可能改变阵列状态的命令。`smartctl` 的物理盘编号 `0-7` 是 MegaRAID 透传编号，不一定等于 StorCLI 的 `252:0-252:7` 槽位；报告中应同时核对型号、序列号和槽位后再处理故障盘。
+
+## 开发验证
+
+下面的测试使用合成数据和模拟邮件程序，不访问真实硬盘，不向任何邮箱发信：
+
+```bash
+bash -n pve-raid-monitor.sh install.sh
+bash tests/test-install.sh
+uv run --no-project python -m unittest discover -s tests -p 'test_mail_report.py' -v
+```
+
+邮件的 HTML/纯文本组合及附件编码使用 [Python 标准库 email](https://docs.python.org/3/library/email.examples.html)，无需安装额外 Python 包。

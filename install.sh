@@ -14,6 +14,7 @@ export LC_ALL=C.UTF-8
 readonly REPOSITORY_URL="${REPOSITORY_URL:-https://github.com/maomomo-eth/pve-raid-monitor}"
 readonly REPOSITORY_REF="${REPOSITORY_REF:-main}"
 readonly MONITOR_BIN="/usr/local/sbin/pve-raid-monitor"
+readonly MAIL_HELPER="/usr/local/lib/pve-raid-monitor/mail_report.py"
 readonly CONFIG_FILE="/etc/pve-raid-monitor.conf"
 readonly SERVICE_FILE="/etc/systemd/system/pve-raid-monitor.service"
 readonly TIMER_FILE="/etc/systemd/system/pve-raid-monitor.timer"
@@ -45,7 +46,7 @@ PVE 阵列每日监控一键安装器
   install.sh [选项]
 
 选项：
-  --no-apt              不自动安装 smartmontools；缺少 smartctl 时直接失败
+  --no-apt              不自动安装依赖；缺少 smartctl 或 python3 时直接失败
   --skip-initial-check  安装完成后不立即执行首次硬盘检查
   -h, --help            显示帮助
 
@@ -136,20 +137,29 @@ download_source() {
     SOURCE_DIR="$extracted_dir"
 }
 
-install_smartmontools() {
+install_dependencies() {
+    local packages=()
     if command -v smartctl >/dev/null 2>&1; then
         info "已找到 smartctl：$(command -v smartctl)"
-        return 0
+    else
+        packages+=(smartmontools)
     fi
+    if command -v python3 >/dev/null 2>&1; then
+        info "已找到 python3：$(command -v python3)"
+    else
+        packages+=(python3)
+    fi
+    ((${#packages[@]} > 0)) || return 0
 
-    (( NO_APT == 0 )) || die "找不到 smartctl；请删除 --no-apt 后重试，或手动安装 smartmontools"
-    command -v apt-get >/dev/null 2>&1 || die "找不到 apt-get，无法自动安装 smartmontools"
+    (( NO_APT == 0 )) || die "缺少依赖 ${packages[*]}；请删除 --no-apt 后重试，或手动安装"
+    command -v apt-get >/dev/null 2>&1 || die "找不到 apt-get，无法自动安装依赖"
 
-    info "未找到 smartctl，正在安装 smartmontools"
+    info "将通过系统软件源安装缺少的依赖：${packages[*]}（SMART 检查和邮件附件编码所需）"
     export DEBIAN_FRONTEND=noninteractive
     apt-get update || die "apt-get update 失败"
-    apt-get install -y smartmontools || die "安装 smartmontools 失败"
-    command -v smartctl >/dev/null 2>&1 || die "smartmontools 安装后仍找不到 smartctl"
+    apt-get install -y "${packages[@]}" || die "安装依赖失败"
+    command -v smartctl >/dev/null 2>&1 || die "安装后仍找不到 smartctl"
+    command -v python3 >/dev/null 2>&1 || die "安装后仍找不到 python3"
 }
 
 find_storcli() {
@@ -183,11 +193,13 @@ find_storcli() {
 
 install_files() {
     [[ -f "$SOURCE_DIR/pve-raid-monitor.sh" ]] || die "项目文件不完整：缺少 pve-raid-monitor.sh"
+    [[ -f "$SOURCE_DIR/mail_report.py" ]] || die "项目文件不完整：缺少 mail_report.py"
     [[ -f "$SOURCE_DIR/pve-raid-monitor.service" ]] || die "项目文件不完整：缺少 systemd service"
     [[ -f "$SOURCE_DIR/pve-raid-monitor.timer" ]] || die "项目文件不完整：缺少 systemd timer"
     [[ -f "$SOURCE_DIR/pve-raid-monitor.conf.example" ]] || die "项目文件不完整：缺少配置模板"
 
     install -D -m 0750 "$SOURCE_DIR/pve-raid-monitor.sh" "$MONITOR_BIN"
+    install -D -m 0644 "$SOURCE_DIR/mail_report.py" "$MAIL_HELPER"
     install -D -m 0644 "$SOURCE_DIR/pve-raid-monitor.service" "$SERVICE_FILE"
     install -D -m 0644 "$SOURCE_DIR/pve-raid-monitor.timer" "$TIMER_FILE"
 
@@ -267,7 +279,7 @@ main() {
         info "使用本地项目文件：${SOURCE_DIR}"
     fi
 
-    install_smartmontools
+    install_dependencies
     if ! storcli_path="$(find_storcli)"; then
         die "找不到 storcli/storcli64。请先安装 LSI/Broadcom/浪潮官方 StorCLI，再重新运行安装器"
     fi

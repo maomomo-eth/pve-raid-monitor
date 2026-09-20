@@ -2,7 +2,7 @@
 
 set -eu
 
-fixture_dir="$(dirname "$0")/fixtures"
+fixture_dir="${FAKE_STORCLI_FIXTURE_DIR:-$(dirname "$0")/fixtures}"
 case "$*" in
     *"/eall/sall"*)
         cat "$fixture_dir/physical-show-all.txt"

@@ -35,5 +35,13 @@ ROC_TEMP_CRIT=85
 CACHEVAULT_TEMP_WARN=55
 CACHEVAULT_TEMP_CRIT=65
 
-# 可选：系统配置了 mail 命令后，异常时发送邮件；留空表示只写日志。
+# 可选：异常时通过本机 Postfix/sendmail 发送 HTML + 纯文本邮件，并附上完整 .log。
+# 留空表示只写日志。多个收件人用英文逗号分隔，不需要 mail/mailutils。
 ALERT_EMAIL=
+
+# 可选发件人。留空沿用本机 root 地址及 Postfix 已配置的发件人改写。
+# 使用 QQ SMTP 中转时，可填写与中转账号一致的邮箱地址。
+ALERT_FROM=
+
+# 向本机邮件队列提交的超时秒数；提交成功不等于收件人已收到。
+EMAIL_TIMEOUT=30

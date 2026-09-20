@@ -46,12 +46,22 @@ fi
 : "${CACHEVAULT_TEMP_WARN:=55}"
 : "${CACHEVAULT_TEMP_CRIT:=65}"
 : "${ALERT_EMAIL:=}"
+: "${ALERT_FROM:=}"
+: "${EMAIL_TIMEOUT:=30}"
 
 ISSUES=()
 WARNINGS=()
 TMP_DIR=""
 REPORT_FILE=""
 HOST_NAME="$(hostname -s 2>/dev/null || hostname)"
+CHECK_TIME=""
+
+require_root() {
+    if (( EUID != 0 )); then
+        printf '错误：必须以 root 身份运行。\n' >&2
+        return 2
+    fi
+}
 
 add_issue() {
     ISSUES+=("$*")
@@ -278,13 +288,13 @@ parse_physical_drives() {
     local pd_count=0
     local sas_count=0
     local sata_count=0
-    local slot state interface model
+    local slot state interface model device_id
 
     awk '
         /^PD LIST[[:space:]]*:/ { in_section = 1; next }
         in_section && /^EID=Physical/ { exit }
         in_section && $1 ~ /^[0-9]+:[0-9]+$/ {
-            print $1 "\t" $3 "\t" $7 "\t" $12
+            print $1 "\t" $3 "\t" $7 "\t" $12 "\t" $2
         }
     ' "$source_file" >"$rows_file"
 
@@ -297,7 +307,7 @@ parse_physical_drives() {
         }
     ' "$source_file" >"$smart_map_file"
 
-    while IFS=$'\t' read -r slot state interface model; do
+    while IFS=$'\t' read -r slot state interface model device_id; do
         [[ -z "$slot" ]] && continue
         pd_count=$((pd_count + 1))
 
@@ -466,8 +476,10 @@ run_smart_checks() {
     local base_device="$1"
     local device_id interface output_file rc driver_list driver_item found
     local smart_summary="$TMP_DIR/smart-summary.txt"
+    local issues_before warnings_before result_status result_label
 
     : >"$smart_summary"
+    : >"$TMP_DIR/smart-result-rows.txt"
     for device_id in $SMART_DEVICE_IDS; do
         interface="$(get_smart_interface "$device_id")"
         if [[ "$SMART_DRIVER" != "auto" ]]; then
@@ -490,6 +502,8 @@ run_smart_checks() {
         fi
 
         found=0
+        issues_before=${#ISSUES[@]}
+        warnings_before=${#WARNINGS[@]}
         for driver_item in "${driver_list[@]}"; do
             output_file="$TMP_DIR/smart-${device_id}-${driver_item//+/_}.txt"
             if run_capture "$output_file" "$SMARTCTL_BIN" -a -d "${driver_item},${device_id}" "$base_device"; then
@@ -506,8 +520,19 @@ run_smart_checks() {
 
             if smart_output_is_healthy "$output_file"; then
                 scan_smart_attributes "$output_file" "$device_id" "$driver_item"
-                printf '物理盘 %s（%s，%s）：SMART 健康\n' \
-                    "$device_id" "${interface:-未知接口}" "$driver_item" >>"$smart_summary"
+                result_status=ok
+                result_label="总体健康通过"
+                if ((${#ISSUES[@]} > issues_before)); then
+                    result_status=critical
+                    result_label="存在严重介质指标"
+                elif ((${#WARNINGS[@]} > warnings_before)); then
+                    result_status=warning
+                    result_label="介质指标需关注"
+                fi
+                printf '物理盘 %s（%s，%s）：SMART %s\n' \
+                    "$device_id" "${interface:-未知接口}" "$driver_item" "$result_label" >>"$smart_summary"
+                printf '%s\t%s\t%s\t%s\n' "$device_id" "$result_status" "$result_label" "$driver_item" \
+                    >>"$TMP_DIR/smart-result-rows.txt"
                 found=1
                 break
             fi
@@ -515,6 +540,8 @@ run_smart_checks() {
             if smart_output_is_failed "$output_file"; then
                 scan_smart_attributes "$output_file" "$device_id" "$driver_item"
                 add_issue "物理盘 ${device_id}（${interface:-未知接口}）的 SMART 健康检查失败（${driver_item}）"
+                printf '%s\tcritical\t总体健康失败\t%s\n' "$device_id" "$driver_item" \
+                    >>"$TMP_DIR/smart-result-rows.txt"
                 found=1
                 break
             fi
@@ -522,6 +549,7 @@ run_smart_checks() {
 
         if (( found == 0 )); then
             add_warning "物理盘 ${device_id}（${interface:-未知接口}）无法通过 smartctl 读取健康状态，请检查 SMART 透传参数"
+            printf '%s\tunknown\t未能读取\t-\n' "$device_id" >>"$TMP_DIR/smart-result-rows.txt"
         fi
     done
 
@@ -530,28 +558,53 @@ run_smart_checks() {
     fi
 }
 
+record_email_failure() {
+    log_line "WARNING" "$*"
+    printf '\n===== 邮件通知 =====\n发送失败：%s\n' "$*" >>"$REPORT_FILE"
+}
+
 send_email_alert() {
     local level="$1"
-    local body
+    local helper python_bin sendmail_bin message
 
     [[ -n "$ALERT_EMAIL" ]] || return 0
-    if ! command -v mail >/dev/null 2>&1; then
-        add_warning "已配置 ALERT_EMAIL，但系统没有 mail 命令，无法发送邮件"
+    helper="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/mail_report.py"
+    [[ -f "$helper" ]] || helper=/usr/local/lib/pve-raid-monitor/mail_report.py
+    python_bin="$(command -v python3 2>/dev/null || true)"
+    sendmail_bin="${SENDMAIL_BIN:-$(command -v sendmail 2>/dev/null || true)}"
+    if [[ -z "$sendmail_bin" && -x /usr/sbin/sendmail ]]; then
+        sendmail_bin=/usr/sbin/sendmail
+    fi
+    if [[ ! -f "$helper" || -z "$python_bin" ]]; then
+        record_email_failure "缺少邮件组件或 python3，请重新运行一键安装器"
+        return 0
+    fi
+    if [[ ! -x "$sendmail_bin" ]]; then
+        record_email_failure "找不到 sendmail，请检查本机 Postfix 安装；硬件检查报告已保存"
         return 0
     fi
 
-    body="PVE 硬盘/阵列检查结果：${level}\n主机：${HOST_NAME}\n报告：${REPORT_FILE}\n"
+    : >"$TMP_DIR/email-issues.txt"
+    : >"$TMP_DIR/email-warnings.txt"
     if ((${#ISSUES[@]} > 0)); then
-        body+="\n严重问题：\n"
-        body+="$(printf -- '- %s\n' "${ISSUES[@]}")"
+        printf '%s\n' "${ISSUES[@]}" >"$TMP_DIR/email-issues.txt"
     fi
     if ((${#WARNINGS[@]} > 0)); then
-        body+="\n警告：\n"
-        body+="$(printf -- '- %s\n' "${WARNINGS[@]}")"
+        printf '%s\n' "${WARNINGS[@]}" >"$TMP_DIR/email-warnings.txt"
     fi
 
-    printf '%b\n' "$body" | mail -s "[PVE][${level}] ${HOST_NAME} 阵列检查" "$ALERT_EMAIL" || \
-        add_warning "发送告警邮件失败"
+    if "$python_bin" "$helper" \
+        --data-dir "$TMP_DIR" --report "$REPORT_FILE" \
+        --host "$HOST_NAME" --time "$CHECK_TIME" --level "$level" \
+        --controller "$CONTROLLER_ID" --expected-pd "$EXPECTED_PD_COUNT" \
+        --recipient "$ALERT_EMAIL" --sender "$ALERT_FROM" \
+        --sendmail "$sendmail_bin" --timeout "$EMAIL_TIMEOUT" \
+        >"$TMP_DIR/email-result.txt" 2>&1; then
+        log_line "INFO" "告警邮件（含日志附件）已提交本机邮件队列；实际送达请查看 Postfix 日志或收件箱"
+    else
+        message="$(<"$TMP_DIR/email-result.txt")"
+        record_email_failure "告警邮件发送失败：${message:-邮件组件未返回错误详情}"
+    fi
 }
 
 main() {
@@ -563,17 +616,15 @@ main() {
     local smart_base_device
     local storcli_command
 
-    if (( EUID != 0 )); then
-        printf '错误：必须以 root 身份运行。\n' >&2
-        exit 2
-    fi
+    require_root || return 2
 
     mkdir -p "$LOG_DIR"
+    CHECK_TIME="$(date '+%F %T %z')"
     REPORT_FILE="$LOG_DIR/report-$(date '+%Y%m%d-%H%M%S').log"
     {
         printf 'PVE 硬盘与阵列每日检查报告\n'
         printf '主机：%s\n' "$HOST_NAME"
-        printf '时间：%s\n' "$(date '+%F %T %z')"
+        printf '时间：%s\n' "$CHECK_TIME"
         printf '控制器：/c%s\n' "$CONTROLLER_ID"
         printf '预期拓扑：%s 个物理盘（SAS=%s，SATA=%s），%s 个 %s 虚拟盘\n' \
             "$EXPECTED_PD_COUNT" "$EXPECTED_SAS_COUNT" "$EXPECTED_SATA_COUNT" "$EXPECTED_VD_COUNT" "$EXPECTED_VD_TYPE"
@@ -641,9 +692,16 @@ main() {
                     add_issue "CacheVault 状态异常：$(trim_text "$cachevault_line")"
                 fi
                 # 第一组数字通常是 CVPM 型号中的数字，不取它；取带 C 后缀的温度。
-                cachevault_temp="$(printf '%s\n' "$cachevault_line" | sed -n 's/.*\([0-9][0-9]*\)C.*/\1/p')"
+                cachevault_temp=""
+                if [[ "$cachevault_line" =~ ([0-9]+)C ]]; then
+                    cachevault_temp="${BASH_REMATCH[1]}"
+                fi
                 check_temperature "CacheVault" "$cachevault_temp" "$CACHEVAULT_TEMP_WARN" "$CACHEVAULT_TEMP_CRIT"
             fi
+
+            printf '阵列卡\t%s\nROC 温度\t%s\nCacheVault\t%s\n' \
+                "${controller_status:-未读取}" "${roc_temp:-未知} °C" "${cachevault_line:-未读取}" \
+                >"$TMP_DIR/email-overview.txt"
 
             if [[ "$(get_equals_value 'Any Offline VD Cache Preserved' "$storcli_show_file")" == "Yes" ]]; then
                 add_issue "控制器存在未释放的 Offline VD Cache"
@@ -738,17 +796,20 @@ main() {
     return 0
 }
 
-if ! TMP_DIR="$(mktemp -d /tmp/pve-raid-monitor.XXXXXX)"; then
-    printf '错误：无法创建临时目录。\n' >&2
-    exit 2
-fi
-trap 'rm -rf "$TMP_DIR"' EXIT
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+    # 原始报告及邮件附件包含设备标识，仅允许管理员读取。
+    umask 077
+    if ! TMP_DIR="$(mktemp -d /tmp/pve-raid-monitor.XXXXXX)"; then
+        printf '错误：无法创建临时目录。\n' >&2
+        exit 2
+    fi
+    trap 'rm -rf "$TMP_DIR"' EXIT
 
-TIMEOUT_BIN="$(command -v timeout 2>/dev/null || true)"
-
-if main "$@"; then
-    exit 0
-else
-    rc=$?
-    exit "$rc"
+    TIMEOUT_BIN="$(command -v timeout 2>/dev/null || true)"
+    if main "$@"; then
+        exit 0
+    else
+        rc=$?
+        exit "$rc"
+    fi
 fi
