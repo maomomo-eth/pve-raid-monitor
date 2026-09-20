@@ -2,7 +2,7 @@
 
 # PVE8 + LSI/MegaRAID 2208 一键安装器。
 # 支持：
-#   curl -fsSL https://raw.githubusercontent.com/maomomo-eth/pve-raid-monitor/main/install.sh | sudo bash
+#   curl -fsSL https://raw.githubusercontent.com/maomomo-eth/pve-raid-monitor/main/install.sh | bash
 #
 # 安装器不会从不明来源下载 storcli；storcli 必须由用户/硬件厂商预先提供。
 
@@ -86,7 +86,7 @@ parse_args() {
 
 require_root() {
     if (( EUID != 0 )); then
-        die "请使用 root 运行，例如：curl -fsSL <安装地址> | sudo bash"
+        die "请使用 root 运行，例如：curl -fsSL <安装地址> | bash"
     fi
 }
 

@@ -13,7 +13,7 @@
 PVE 主机已安装厂商提供的 `storcli`/`storcli64` 后，可以直接执行：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/maomomo-eth/pve-raid-monitor/main/install.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/maomomo-eth/pve-raid-monitor/main/install.sh | bash
 ```
 
 安装器会自动安装 Debian/PVE 官方源中的 `smartmontools`，保留已有的 `/etc/pve-raid-monitor.conf`，安装 systemd 服务并启用每日定时器。`storcli` 属于阵列卡厂商工具，安装器不会从不明来源下载；如果找不到它，会停止安装并提示先安装。
@@ -21,7 +21,7 @@ curl -fsSL https://raw.githubusercontent.com/maomomo-eth/pve-raid-monitor/main/i
 如果不希望安装器自动调用 `apt-get`：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/maomomo-eth/pve-raid-monitor/main/install.sh | sudo bash -s -- --no-apt
+curl -fsSL https://raw.githubusercontent.com/maomomo-eth/pve-raid-monitor/main/install.sh | bash -s -- --no-apt
 ```
 
 首次检查发现阵列异常不会撤销安装；安装器会保留服务和定时器，并提示查看报告。
