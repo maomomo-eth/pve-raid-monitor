@@ -100,6 +100,22 @@ resolve_binary() {
             return 0
         fi
     done
+
+    # 某些厂商把 StorCLI 放在 PATH 之外，systemd 服务也需要能够找到它。
+    for resolved in \
+        /usr/local/sbin/storcli64 \
+        /usr/local/sbin/storcli \
+        /usr/sbin/storcli64 \
+        /usr/sbin/storcli \
+        /usr/bin/storcli64 \
+        /usr/bin/storcli \
+        /opt/MegaRAID/storcli/storcli64 \
+        /opt/MegaRAID/storcli/storcli; do
+        if [[ -x "$resolved" ]]; then
+            printf '%s\n' "$resolved"
+            return 0
+        fi
+    done
     return 1
 }
 
