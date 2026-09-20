@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+
+set -eu
+
+fixture_dir="$(dirname "$0")/fixtures"
+case "$*" in
+    *"/eall/sall"*)
+        cat "$fixture_dir/physical-show-all.txt"
+        ;;
+    *"/vall"*)
+        cat "$fixture_dir/virtual-show-all.txt"
+        ;;
+    *"show events"*)
+        printf '%s\n' 'Event log is empty in smoke test.'
+        ;;
+    *)
+        cat "$fixture_dir/controller-show-all.txt"
+        ;;
+esac

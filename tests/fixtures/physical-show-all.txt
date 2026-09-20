@@ -1,0 +1,11 @@
+Drive /c0/e252/s0 - Detailed Information
+Media Error Count = 0
+Other Error Count = 0
+Predictive Failure Count = 0
+S.M.A.R.T alert flagged by drive = No
+
+Drive /c0/e252/s1 - Detailed Information
+Media Error Count = 0
+Other Error Count = 0
+Predictive Failure Count = 0
+S.M.A.R.T alert flagged by drive = No

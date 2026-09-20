@@ -1,0 +1,10 @@
+# 运行时报告和本地配置不应提交到公开仓库。
+*.log
+report-*.log
+pve-raid-monitor.conf
+.env
+
+# 编辑器和系统临时文件。
+.DS_Store
+*.swp
+*~

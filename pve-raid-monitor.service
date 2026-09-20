@@ -1,0 +1,10 @@
+[Unit]
+Description=PVE LSI RAID and disk daily monitor
+After=local-fs.target
+ConditionPathExists=/usr/local/sbin/pve-raid-monitor
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/pve-raid-monitor
+User=root
+Group=root

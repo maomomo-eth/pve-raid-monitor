@@ -1,0 +1,42 @@
+Controller = 0
+Status :
+======
+Controller Status = Needs Attention
+Memory Correctable Errors = 0
+Memory Uncorrectable Errors = 0
+Any Offline VD Cache Preserved = No
+Controller shutdown required = No
+ROC temperature(Degree Celsius) = 62
+
+Cachevault_Info :
+===============
+Model  State                 Temp Mode MfgDate
+CVPM02 Dgd (Needs Attention) 35C  -    2014/04/03
+
+Drive Groups = 2
+
+VD LIST :
+-------
+DG/VD TYPE   State Access Consist Cache Cac sCC      Size Name
+0/0   RAID10 Optl  RW     Yes     RWBD  -   ON   3.637 TB sas2t
+1/1   RAID10 Optl  RW     Yes     RWBD  -   ON  14.553 TB sata8t
+VD=Virtual Drive| DG=Drive Group|Rec=Recovery
+
+PD LIST :
+-------
+EID:Slt DID State DG     Size Intf Med SED PI SeSz Model               Sp Type
+252:0     0 Onln   0 1.818 TB SAS HDD N   N  512B HUS724020ALS640     U  -
+252:1     1 Onln   0 1.818 TB SAS HDD N   N  512B HUS724020ALS640     U  -
+252:2     2 Onln   0 1.818 TB SAS HDD N   N  512B HUS724020ALS640     U  -
+252:3     3 Onln   0 1.818 TB SAS HDD N   N  512B HUS724020ALS640     U  -
+252:4     4 Onln   1 7.276 TB SATA HDD N   N  512B ST8000NM000A-2KE101 U  -
+252:5     5 Onln   1 7.276 TB SATA HDD N   N  512B ST8000NM000A-2KE101 U  -
+252:6     6 Onln   1 7.276 TB SATA HDD N   N  512B ST8000NM000A-2KE101 U  -
+252:7     7 Onln   1 7.276 TB SATA HDD N   N  512B ST8000NM000A-2KE101 U  -
+EID=Physical drive count | PD=Physical drive count
+
+Enclosure LIST :
+==============
+EID State Slots PD PS Fans TSs Alms SIM Port# ProdID VendorSpecific
+252 OK        8  8  0    0   0    0   0 -     SGPIO
+EID=Enclosure Device ID | PD=Physical drive count

@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+
+set -eu
+
+printf '%s\n' 'SMART overall-health self-assessment test result: PASSED'
+printf '%s\n' 'Reallocated_Sector_Ct 0'
+printf '%s\n' 'Current_Pending_Sector 0'
+printf '%s\n' 'Offline_Uncorrectable 0'

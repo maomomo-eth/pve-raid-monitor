@@ -1,0 +1,39 @@
+# PVE8 + LSI/MegaRAID 2208 监控配置
+# 复制到 /etc/pve-raid-monitor.conf 后按实际设备调整。
+
+CONTROLLER_ID=0
+
+# 如果命令不在 PATH 中，可以填写绝对路径；否则保持注释即可自动寻找。
+# STORCLI_BIN=/usr/local/sbin/storcli64
+# SMARTCTL_BIN=/usr/sbin/smartctl
+
+# 你的阵列拓扑：4 个 SAS 2TB + 4 个 SATA 8TB，两个 RAID10。
+EXPECTED_PD_COUNT=8
+EXPECTED_SAS_COUNT=4
+EXPECTED_SATA_COUNT=4
+EXPECTED_VD_COUNT=2
+EXPECTED_VD_TYPE=RAID10
+
+# MegaRAID SMART 透传的宿主设备。
+# auto 会尝试 /dev/sd?；如果自动探测失败，建议改成实际的 RAID 虚拟盘，通常是 /dev/sda。
+SMART_BASE_DEVICE=auto
+
+# auto 依次尝试 sat+megaraid,N 和 megaraid,N。
+SMART_DRIVER=auto
+SMART_DEVICE_IDS="0 1 2 3 4 5 6 7"
+
+# 设为 1 时，无法执行 smartctl 会让本次检查返回严重异常。
+REQUIRE_SMARTCTL=0
+
+LOG_DIR=/var/log/pve-raid-monitor
+REPORT_KEEP_DAYS=90
+COMMAND_TIMEOUT=120
+
+# 温度阈值，单位 °C；按机箱风道和厂商规格调整。
+ROC_TEMP_WARN=75
+ROC_TEMP_CRIT=85
+CACHEVAULT_TEMP_WARN=55
+CACHEVAULT_TEMP_CRIT=65
+
+# 可选：系统配置了 mail 命令后，异常时发送邮件；留空表示只写日志。
+ALERT_EMAIL=
