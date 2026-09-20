@@ -2,7 +2,37 @@
 
 set -eu
 
-printf '%s\n' 'SMART overall-health self-assessment test result: PASSED'
+smart_type=""
+smart_id=""
+while (($# > 0)); do
+    case "$1" in
+        -d)
+            smart_type="$2"
+            smart_id="${2##*,}"
+            shift 2
+            ;;
+        *)
+            shift
+            ;;
+    esac
+done
+
+# 模拟实际设备：SAS 0-3 不支持 sat+megaraid，改用 megaraid 后正常；
+# SATA 4-7 使用 sat+megaraid 正常。
+case "$smart_type" in
+    sat+megaraid,0|sat+megaraid,1|sat+megaraid,2|sat+megaraid,3)
+        printf '%s\n' 'Read Device Identity failed: simulated SAS SAT mismatch'
+        printf '%s\n' 'A mandatory SMART command failed: exiting.'
+        exit 2
+        ;;
+    megaraid,0|megaraid,1|megaraid,2|megaraid,3)
+        printf '%s\n' 'SMART Health Status: OK'
+        ;;
+    *)
+        printf '%s\n' 'SMART overall-health self-assessment test result: PASSED'
+        ;;
+esac
+
 printf '%s\n' 'Reallocated_Sector_Ct 0'
 printf '%s\n' 'Current_Pending_Sector 0'
 printf '%s\n' 'Offline_Uncorrectable 0'

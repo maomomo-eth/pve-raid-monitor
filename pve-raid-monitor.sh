@@ -274,6 +274,7 @@ scan_smart_alerts() {
 parse_physical_drives() {
     local source_file="$1"
     local rows_file="$TMP_DIR/physical-drive-rows.txt"
+    local smart_map_file="$TMP_DIR/smart-device-map.txt"
     local pd_count=0
     local sas_count=0
     local sata_count=0
@@ -286,6 +287,15 @@ parse_physical_drives() {
             print $1 "\t" $3 "\t" $7 "\t" $12
         }
     ' "$source_file" >"$rows_file"
+
+    # 保存 DID 到 SAS/SATA 的映射，供 smartctl 选择正确的 MegaRAID 设备类型。
+    awk '
+        /^PD LIST[[:space:]]*:/ { in_section = 1; next }
+        in_section && /^EID=Physical/ { exit }
+        in_section && $1 ~ /^[0-9]+:[0-9]+$/ {
+            print $2 "\t" $7 "\t" $1
+        }
+    ' "$source_file" >"$smart_map_file"
 
     while IFS=$'\t' read -r slot state interface model; do
         [[ -z "$slot" ]] && continue
@@ -324,6 +334,14 @@ parse_physical_drives() {
     if (( sata_count != EXPECTED_SATA_COUNT )); then
         add_issue "SATA 物理盘数量为 ${sata_count}，预期为 ${EXPECTED_SATA_COUNT}"
     fi
+}
+
+get_smart_interface() {
+    local device_id="$1"
+    local smart_map_file="$TMP_DIR/smart-device-map.txt"
+
+    [[ -s "$smart_map_file" ]] || return 0
+    awk -F'\t' -v wanted="$device_id" '$1 == wanted { print $2; exit }' "$smart_map_file"
 }
 
 parse_virtual_drives() {
@@ -412,7 +430,7 @@ smart_output_is_healthy() {
 smart_output_is_failed() {
     local file="$1"
     grep -Eiq \
-        'SMART (overall-health self-assessment test result|Health Status)[[:space:]]*:[[:space:]]*(FAILED|BAD)|overall-health.*FAILED|SMART.*FAIL' \
+        'SMART (overall-health self-assessment test result|Health Status)[[:space:]]*:[[:space:]]*(FAILED|BAD)|overall-health.*FAILED' \
         "$file"
 }
 
@@ -446,16 +464,31 @@ scan_smart_attributes() {
 
 run_smart_checks() {
     local base_device="$1"
-    local device_id driver output_file rc driver_list driver_item found
+    local device_id interface output_file rc driver_list driver_item found
     local smart_summary="$TMP_DIR/smart-summary.txt"
-
-    driver_list=("sat+megaraid" "megaraid")
-    if [[ "$SMART_DRIVER" != "auto" ]]; then
-        driver_list=("$SMART_DRIVER")
-    fi
 
     : >"$smart_summary"
     for device_id in $SMART_DEVICE_IDS; do
+        interface="$(get_smart_interface "$device_id")"
+        if [[ "$SMART_DRIVER" != "auto" ]]; then
+            driver_list=("$SMART_DRIVER")
+        else
+            case "$interface" in
+                SAS)
+                    # SAS 盘不使用 SAT 透传，否则会出现 Read Device Identity failed。
+                    driver_list=("megaraid")
+                    ;;
+                SATA)
+                    # SATA 盘优先使用 SAT 透传；部分固件不支持时再回退。
+                    driver_list=("sat+megaraid" "megaraid")
+                    ;;
+                *)
+                    # 无法从 StorCLI 判断接口时保留兼容性回退顺序。
+                    driver_list=("sat+megaraid" "megaraid")
+                    ;;
+            esac
+        fi
+
         found=0
         for driver_item in "${driver_list[@]}"; do
             output_file="$TMP_DIR/smart-${device_id}-${driver_item//+/_}.txt"
@@ -466,28 +499,29 @@ run_smart_checks() {
             fi
 
             write_section \
-                "smartctl 物理盘 ${device_id} (${driver_item})" \
+                "smartctl 物理盘 ${device_id} (${interface:-未知接口}, ${driver_item})" \
                 "$(command_text "$SMARTCTL_BIN" -a -d "${driver_item},${device_id}" "$base_device")" \
                 "$output_file" \
                 "$rc"
 
             if smart_output_is_healthy "$output_file"; then
                 scan_smart_attributes "$output_file" "$device_id" "$driver_item"
-                printf '物理盘 %s：SMART 健康\n' "$device_id" >>"$smart_summary"
+                printf '物理盘 %s（%s，%s）：SMART 健康\n' \
+                    "$device_id" "${interface:-未知接口}" "$driver_item" >>"$smart_summary"
                 found=1
                 break
             fi
 
             if smart_output_is_failed "$output_file"; then
                 scan_smart_attributes "$output_file" "$device_id" "$driver_item"
-                add_issue "物理盘 ${device_id} 的 SMART 健康检查失败（${driver_item}）"
+                add_issue "物理盘 ${device_id}（${interface:-未知接口}）的 SMART 健康检查失败（${driver_item}）"
                 found=1
                 break
             fi
         done
 
         if (( found == 0 )); then
-            add_warning "物理盘 ${device_id} 无法通过 smartctl 读取健康状态，请检查 SMART 透传参数"
+            add_warning "物理盘 ${device_id}（${interface:-未知接口}）无法通过 smartctl 读取健康状态，请检查 SMART 透传参数"
         fi
     done
 

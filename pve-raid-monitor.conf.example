@@ -18,7 +18,7 @@ EXPECTED_VD_TYPE=RAID10
 # auto 会尝试 /dev/sd?；如果自动探测失败，建议改成实际的 RAID 虚拟盘，通常是 /dev/sda。
 SMART_BASE_DEVICE=auto
 
-# auto 依次尝试 sat+megaraid,N 和 megaraid,N。
+# auto 根据 StorCLI 接口类型选择：SAS 使用 megaraid,N，SATA 使用 sat+megaraid,N；SATA 失败时回退到 megaraid,N。
 SMART_DRIVER=auto
 SMART_DEVICE_IDS="0 1 2 3 4 5 6 7"
 

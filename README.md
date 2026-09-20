@@ -65,7 +65,7 @@ smartctl -i -d megaraid,0 /dev/sda
 smartctl -a -d sat+megaraid,0 /dev/sda
 ```
 
-如果 SATA 盘不支持 `sat+megaraid`，程序会自动回退到 `megaraid,N`；SAS 盘通常直接使用 `megaraid,N`。
+程序会根据 StorCLI 的接口类型自动选择：SAS 盘使用 `megaraid,N`，SATA 盘使用 `sat+megaraid,N`；SATA 透传失败时再回退到 `megaraid,N`。
 
 然后手动运行一次：
 
